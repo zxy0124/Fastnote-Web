@@ -170,73 +170,66 @@
         const passwordInput = document.getElementById('password');
 
         // ==================== 1. 自动尝试唤起 App (仅移动端) ====================
-        function tryDeepLink() {
-            // 简单判断是否在移动端 (iOS/Android)
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-            if (isMobile) {
-                console.log("Mobile detected, attempting deep link...");
-                // 把当前的 hash/search 参数透传给 App
-                const params = window.location.hash || window.location.search;
-                const appUrl = APP_DEEP_LINK + params;
-
-                // 尝试跳转
-                window.location.href = appUrl;
-
-                // 如果跳转失败（没有安装 App），则停留在网页使用网页版重置
-            }
-        }
-
-        // 页面加载时尝试唤起
-        tryDeepLink();
-
-        // ==================== 2. 网页版重置逻辑 ====================
-
-        // 解析 URL 参数 (支持 hash # 和 query ?)
-        const getParams = () => {
-            // 优先尝试 Hash (Supabase 默认)
-            let hashParams = new URLSearchParams(window.location.hash.substring(1));
-            // 其次尝试 Query (PKCE 或其他模式)
-            let queryParams = new URLSearchParams(window.location.search);
-
-            return {
-                access_token: hashParams.get('access_token') || queryParams.get('access_token'),
-                refresh_token: hashParams.get('refresh_token') || queryParams.get('refresh_token'),
-                type: hashParams.get('type') || queryParams.get('type'),
-                error: hashParams.get('error') || queryParams.get('error'),
-                error_description: hashParams.get('error_description') || queryParams.get('error_description')
-            };
-        };
-
+        // ==================== 1. 自动尝试唤起 App (仅移动端) ====================
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         const params = getParams();
         console.log("Parsed Params:", params); // Debug
 
-        // 检查是否有错误
-        if (params.error) {
-            showMessage(params.error_description || params.error, false);
-            submitBtn.disabled = true;
-        }
-        // 尝试恢复会话
-        else if (params.access_token) {
-            supabaseClient.auth.setSession({
-                access_token: params.access_token,
-                refresh_token: params.refresh_token
-            }).then(({ data, error }) => {
-                if (error) {
-                    showMessage("会话恢复失败: " + error.message, false);
-                } else {
-                    console.log("Session restored!");
-                }
-            });
+        if (isMobile) {
+            console.log("Mobile detected, attempting deep link...");
+            // 手机端：只唤起 App，不自动消费 Token (把 Token 留给 App 用)
+            const appUrl = APP_DEEP_LINK + (window.location.hash || window.location.search);
+            window.location.href = appUrl;
+
+            // 显示提示，并提供"强制网页重置"按钮
+            showMessage("正在唤起 Fastnote App进行重置...", true);
+
+            // 创建一个手动按钮，万一没装 App，用户可以点这个强制在网页处理
+            const fallbackBtn = document.createElement('button');
+            fallbackBtn.textContent = "我没有安装 App，在网页重置";
+            fallbackBtn.style.cssText = "margin-top:20px; background:#6c757d;";
+            fallbackBtn.onclick = function () {
+                fallbackBtn.style.display = 'none';
+                initWebSession(params); // 手动触发网页 Session 处理
+            };
+            document.querySelector('.container').appendChild(fallbackBtn);
+
         } else {
-            // 没有 token，显示提示，但不禁用表单（万一用户已经在浏览器登录了）
-            // 如果用户确实没登录，提交时会报错
-            showMessage("未检出链接中的 Token，可能是直接访问了此页面。", false);
+            // 电脑端：自动处理 Session
+            initWebSession(params);
+        }
+
+        // ==================== 2. 网页版 Session 处理逻辑 ====================
+        function initWebSession(params) {
+            // 检查是否有错误
+            if (params.error) {
+                showMessage(params.error_description || params.error, false);
+                submitBtn.disabled = true;
+            }
+            // 尝试恢复会话
+            else if (params.access_token) {
+                supabaseClient.auth.setSession({
+                    access_token: params.access_token,
+                    refresh_token: params.refresh_token
+                }).then(({ data, error }) => {
+                    if (error) {
+                        showMessage("会话恢复失败: " + error.message, false);
+                    } else {
+                        console.log("Session restored!");
+                        showMessage("会话已恢复，请设置新密码", true);
+                    }
+                });
+            } else {
+                showMessage("未检出链接中的 Token，可能是直接访问了此页面。", false);
+            }
         }
 
         // 表单提交
         form.addEventListener('submit', async (e) => {
+            // (IsMobile 检查：如果在手机上由于某种原因没跳走，且用户强行提交，这时再消费 Token 也可以，但最好依赖 initWebSession)
+            // 这里的提交逻辑不需要变，因为只有 initWebSession 成功了，用户才能看到正常的表单
             e.preventDefault();
+            // ... (rest of the submit logic same as before)
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
 

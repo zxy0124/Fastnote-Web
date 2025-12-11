@@ -169,35 +169,13 @@
         const spinner = document.getElementById('spinner');
         const passwordInput = document.getElementById('password');
 
-        // ==================== 1. 自动尝试唤起 App (仅移动端) ====================
-        // ==================== 1. 自动尝试唤起 App (仅移动端) ====================
+        // ==================== 1. 初始化检测 ====================
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         const params = getParams();
         console.log("Parsed Params:", params); // Debug
 
-        if (isMobile) {
-            console.log("Mobile detected, attempting deep link...");
-            // 手机端：只唤起 App，不自动消费 Token (把 Token 留给 App 用)
-            const appUrl = APP_DEEP_LINK + (window.location.hash || window.location.search);
-            window.location.href = appUrl;
-
-            // 显示提示，并提供"强制网页重置"按钮
-            showMessage("正在唤起 Fastnote App进行重置...", true);
-
-            // 创建一个手动按钮，万一没装 App，用户可以点这个强制在网页处理
-            const fallbackBtn = document.createElement('button');
-            fallbackBtn.textContent = "我没有安装 App，在网页重置";
-            fallbackBtn.style.cssText = "margin-top:20px; background:#6c757d;";
-            fallbackBtn.onclick = function () {
-                fallbackBtn.style.display = 'none';
-                initWebSession(params); // 手动触发网页 Session 处理
-            };
-            document.querySelector('.container').appendChild(fallbackBtn);
-
-        } else {
-            // 电脑端：自动处理 Session
-            initWebSession(params);
-        }
+        // 无论电脑还是手机，统一在网页处理 Session
+        initWebSession(params);
 
         // ==================== 2. 网页版 Session 处理逻辑 ====================
         function initWebSession(params) {
@@ -226,10 +204,7 @@
 
         // 表单提交
         form.addEventListener('submit', async (e) => {
-            // (IsMobile 检查：如果在手机上由于某种原因没跳走，且用户强行提交，这时再消费 Token 也可以，但最好依赖 initWebSession)
-            // 这里的提交逻辑不需要变，因为只有 initWebSession 成功了，用户才能看到正常的表单
             e.preventDefault();
-            // ... (rest of the submit logic same as before)
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
 
@@ -245,8 +220,24 @@
 
                 if (error) throw error;
 
-                showMessage('密码重置成功！请使用新密码登录 App。', true);
+                // —————————————— 关键修改：成功后处理 ——————————————
+                showMessage('密码重置成功！', true);
+
+                if (isMobile) {
+                    // 手机端：延迟 1.5秒 后尝试唤起 App
+                    setTimeout(() => {
+                        window.location.href = 'fastnote://';
+                    }, 1500);
+
+                    messageEl.innerHTML += '<br>即将跳转回 App...<br><a href="fastnote://" style="display:inline-block;margin-top:10px;padding:8px 16px;background:#667eea;color:white;text-decoration:none;border-radius:4px;">如果没有跳转，点此打开 App</a>';
+                } else {
+                    messageEl.innerText += ' 您现在可以使用新密码在 App 登录了。';
+                }
+
                 form.reset();
+                // 禁用按钮防止重复提交
+                submitBtn.disabled = true;
+
             } catch (error) {
                 showMessage(error.message || '重置失败，请稍后重试', false);
             } finally {

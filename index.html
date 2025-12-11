@@ -38,36 +38,34 @@
             color: #1a1a1a;
         }
 
-        .subtitle {
+        p {
             color: #666;
-            margin-bottom: 32px;
-            font-size: 14px;
+            margin-bottom: 24px;
         }
 
-        .form-group {
+        .input-group {
             margin-bottom: 20px;
         }
 
         label {
             display: block;
             margin-bottom: 8px;
-            color: #333;
-            font-size: 14px;
             font-weight: 500;
+            color: #333;
         }
 
         input {
             width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e0e0e0;
+            padding: 12px;
+            border: 2px solid #e1e1e1;
             border-radius: 8px;
             font-size: 16px;
-            transition: border-color 0.3s;
+            transition: all 0.3s;
         }
 
         input:focus {
-            outline: none;
             border-color: #667eea;
+            outline: none;
         }
 
         button {
@@ -84,7 +82,7 @@
         }
 
         button:hover {
-            background: #5568d3;
+            background: #5a6fd1;
         }
 
         button:disabled {
@@ -93,38 +91,34 @@
         }
 
         .message {
+            margin-top: 16px;
             padding: 12px;
             border-radius: 8px;
-            margin-bottom: 20px;
             font-size: 14px;
-        }
-
-        .error {
-            background: #fee;
-            color: #c33;
-            border: 1px solid #fcc;
+            display: none;
         }
 
         .success {
-            background: #efe;
-            color: #3c3;
-            border: 1px solid #cfc;
+            background: #d4edda;
+            color: #155724;
         }
 
-        .info {
-            background: #e3f2fd;
-            color: #1976d2;
-            border: 1px solid #90caf9;
+        .error {
+            background: #f8d7da;
+            color: #721c24;
         }
 
-        .loading {
+        .spinner {
             display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid #fff;
-            border-top-color: transparent;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
-            animation: spin 0.6s linear infinite;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+            display: none;
         }
 
         @keyframes spin {
@@ -136,25 +130,26 @@
 </head>
 
 <body>
+
     <div class="container">
         <h1>🔐 重置密码</h1>
-        <p class="subtitle">请输入您的新密码</p>
+        <p>请输入您的新密码</p>
 
-        <div id="messageBox"></div>
+        <div id="message" class="message"></div>
 
         <form id="resetForm">
-            <div class="form-group">
-                <label for="password">新密码</label>
-                <input type="password" id="password" name="password" minlength="6" required placeholder="至少6位字符">
+            <div class="input-group">
+                <label>新密码</label>
+                <input type="password" id="password" required minlength="6" placeholder="••••••••">
             </div>
 
-            <div class="form-group">
-                <label for="confirmPassword">确认密码</label>
-                <input type="password" id="confirmPassword" name="confirmPassword" minlength="6" required
-                    placeholder="再次输入密码">
+            <div class="input-group">
+                <label>确认密码</label>
+                <input type="password" id="confirmPassword" required minlength="6" placeholder="••••••••">
             </div>
 
             <button type="submit" id="submitBtn">
+                <span class="spinner" id="spinner"></span>
                 <span id="btnText">重置密码</span>
             </button>
         </form>
@@ -162,99 +157,123 @@
 
     <script>
         // ==================== 配置区 ====================
-        // Supabase 项目信息（已从 Info.plist 同步）
         const SUPABASE_URL = 'https://yowfwbzyfwelkccgvqan.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlvd2Z3Ynp5ZndlbGtjY2d2cWFuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNjMxMjIsImV4cCI6MjA4MDkzOTEyMn0.CXpO7_odyNg0nniFjqC3yXSwRxhe6yIrI90MHH1o_gc';
         const APP_DEEP_LINK = 'fastnote://reset-callback';
 
         // ==================== 初始化 ====================
-        const { createClient } = supabase;
-        const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-        // ==================== DOM 元素 ====================
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         const form = document.getElementById('resetForm');
-        const messageBox = document.getElementById('messageBox');
+        const messageEl = document.getElementById('message');
         const submitBtn = document.getElementById('submitBtn');
-        const btnText = document.getElementById('btnText');
+        const spinner = document.getElementById('spinner');
+        const passwordInput = document.getElementById('password');
 
-        // ==================== 工具函数 ====================
-        function showMessage(message, type) {
-            messageBox.innerHTML = `<div class="message ${type}">${message}</div>`;
-        }
+        // ==================== 1. 自动尝试唤起 App (仅移动端) ====================
+        function tryDeepLink() {
+            // 简单判断是否在移动端 (iOS/Android)
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-        function setLoading(isLoading) {
-            submitBtn.disabled = isLoading;
-            btnText.innerHTML = isLoading ? '<span class="loading"></span>' : '重置密码';
-        }
+            if (isMobile) {
+                console.log("Mobile detected, attempting deep link...");
+                // 把当前的 hash/search 参数透传给 App
+                const params = window.location.hash || window.location.search;
+                const appUrl = APP_DEEP_LINK + params;
 
-        function isMobile() {
-            return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        }
+                // 尝试跳转
+                window.location.href = appUrl;
 
-        // ==================== 移动端深链接尝试 ====================
-        function attemptDeepLink() {
-            if (isMobile()) {
-                showMessage('正在尝试打开 Fastnote App...', 'info');
-
-                // 尝试打开 App
-                window.location.href = APP_DEEP_LINK + window.location.hash;
-
-                // 3秒后检测是否成功，失败则显示表单
-                setTimeout(() => {
-                    showMessage('未检测到 App，请在下方网页端重置', 'info');
-                }, 3000);
+                // 如果跳转失败（没有安装 App），则停留在网页使用网页版重置
             }
         }
 
-        // ==================== 表单提交 ====================
+        // 页面加载时尝试唤起
+        tryDeepLink();
+
+        // ==================== 2. 网页版重置逻辑 ====================
+
+        // 解析 URL 参数 (支持 hash # 和 query ?)
+        const getParams = () => {
+            // 优先尝试 Hash (Supabase 默认)
+            let hashParams = new URLSearchParams(window.location.hash.substring(1));
+            // 其次尝试 Query (PKCE 或其他模式)
+            let queryParams = new URLSearchParams(window.location.search);
+
+            return {
+                access_token: hashParams.get('access_token') || queryParams.get('access_token'),
+                refresh_token: hashParams.get('refresh_token') || queryParams.get('refresh_token'),
+                type: hashParams.get('type') || queryParams.get('type'),
+                error: hashParams.get('error') || queryParams.get('error'),
+                error_description: hashParams.get('error_description') || queryParams.get('error_description')
+            };
+        };
+
+        const params = getParams();
+        console.log("Parsed Params:", params); // Debug
+
+        // 检查是否有错误
+        if (params.error) {
+            showMessage(params.error_description || params.error, false);
+            submitBtn.disabled = true;
+        }
+        // 尝试恢复会话
+        else if (params.access_token) {
+            supabase.auth.setSession({
+                access_token: params.access_token,
+                refresh_token: params.refresh_token
+            }).then(({ data, error }) => {
+                if (error) {
+                    showMessage("会话恢复失败: " + error.message, false);
+                } else {
+                    console.log("Session restored!");
+                }
+            });
+        } else {
+            // 没有 token，显示提示，但不禁用表单（万一用户已经在浏览器登录了）
+            // 如果用户确实没登录，提交时会报错
+            showMessage("未检出链接中的 Token，可能是直接访问了此页面。", false);
+        }
+
+        // 表单提交
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
 
-            // 验证
             if (password !== confirmPassword) {
-                showMessage('两次输入的密码不一致', 'error');
-                return;
-            }
-
-            if (password.length < 6) {
-                showMessage('密码长度至少为6位', 'error');
+                showMessage('两次输入的密码不一致', false);
                 return;
             }
 
             setLoading(true);
 
             try {
-                // 更新密码
-                const { data, error } = await supabaseClient.auth.updateUser({
-                    password: password
-                });
+                const { data, error } = await supabase.auth.updateUser({ password: password });
 
                 if (error) throw error;
 
-                showMessage('✅ 密码重置成功！', 'success');
-
-                // 3秒后提示用户可以关闭页面
-                setTimeout(() => {
-                    showMessage('密码已更新，您现在可以关闭此页面并使用新密码登录。', 'success');
-                }, 2000);
-
+                showMessage('密码重置成功！请使用新密码登录 App。', true);
                 form.reset();
             } catch (error) {
-                console.error('Error:', error);
-                showMessage(`❌ 重置失败: ${error.message}`, 'error');
+                showMessage(error.message || '重置失败，请稍后重试', false);
             } finally {
                 setLoading(false);
             }
         });
 
-        // ==================== 页面加载时执行 ====================
-        window.addEventListener('load', () => {
-            // 移动端自动尝试深链接
-            attemptDeepLink();
-        });
+        // ==================== 辅助函数 ====================
+        function showMessage(text, isSuccess) {
+            messageEl.style.display = 'block';
+            messageEl.textContent = text;
+            messageEl.className = 'message ' + (isSuccess ? 'success' : 'error');
+        }
+
+        function setLoading(isLoading) {
+            submitBtn.disabled = isLoading;
+            passwordInput.disabled = isLoading;
+            spinner.style.display = isLoading ? 'inline-block' : 'none';
+            document.getElementById('btnText').textContent = isLoading ? '处理中...' : '重置密码';
+        }
     </script>
 </body>
 
